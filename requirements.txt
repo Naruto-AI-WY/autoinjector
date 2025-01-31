@@ -1,0 +1,9 @@
+PySide6==6.8.1.1
+PySide6-Addons==6.8.1.1
+PySide6-Essentials==6.8.1.1
+pyserial==3.5
+pytest==7.4.0
+black==23.12.0
+flake8==7.0.0
+blockly-web==0.0.7
+QScintilla==2.14.1

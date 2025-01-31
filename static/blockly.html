@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Blockly</title>
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <script src="https://unpkg.com/blockly@10.2.2/blockly_compressed.js"></script>
+    <script src="https://unpkg.com/blockly@10.2.2/blocks_compressed.js"></script>
+    <script src="https://unpkg.com/blockly@10.2.2/python_compressed.js"></script>
+    <script src="https://unpkg.com/blockly@10.2.2/msg/zh-hans.js"></script>
+    <script src="blocks/serial_blocks.js"></script>
+    <script src="blocks/pump_blocks.js"></script>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+        #blocklyDiv {
+            height: 100%;
+            width: 100%;
+        }
+        /* 工具箱样式 */
+        .blocklyToolboxDiv {
+            font-size: 16px !important;
+            padding: 8px;
+        }
+        .blocklyTreeLabel {
+            font-size: 24px !important;
+            padding: 4px !important;
+        }
+        .blocklyTreeRow {
+            height: 40px !important;
+            line-height: 40px !important;
+        }
+        /* 高亮显示样式 */
+        .blocklyHighlighted > .blocklyPath {
+            stroke: #ffeb3b !important;
+            stroke-width: 3px !important;
+            filter: drop-shadow(0 0 5px rgba(255, 235, 59, 0.5));
+        }
+    </style>
+</head>
+<body>
+    <div id="blocklyDiv"></div>
+
+    <xml id="toolbox" style="display: none">
+        <category name="逻辑" colour="%{BKY_LOGIC_HUE}">
+            <block type="controls_if"></block>
+            <block type="logic_compare"></block>
+            <block type="logic_operation"></block>
+            <block type="logic_boolean"></block>
+        </category>
+
+        <category name="循环" colour="%{BKY_LOOPS_HUE}">
+            <block type="controls_repeat_ext">
+                <value name="TIMES">
+                    <shadow type="math_number">
+                        <field name="NUM">10</field>
+                    </shadow>
+                </value>
+            </block>
+            <block type="controls_for">
+                <value name="FROM">
+                    <shadow type="math_number">
+                        <field name="NUM">1</field>
+                    </shadow>
+                </value>
+                <value name="TO">
+                    <shadow type="math_number">
+                        <field name="NUM">10</field>
+                    </shadow>
+                </value>
+                <value name="BY">
+                    <shadow type="math_number">
+                        <field name="NUM">1</field>
+                    </shadow>
+                </value>
+            </block>
+            <block type="controls_whileUntil"></block>
+        </category>
+
+        <category name="数学" colour="%{BKY_MATH_HUE}">
+            <block type="math_number"></block>
+            <block type="math_arithmetic"></block>
+            <block type="math_single"></block>
+            <block type="math_round"></block>
+            <block type="math_constrain">
+                <value name="LOW">
+                    <shadow type="math_number">
+                        <field name="NUM">1</field>
+                    </shadow>
+                </value>
+                <value name="HIGH">
+                    <shadow type="math_number">
+                        <field name="NUM">100</field>
+                    </shadow>
+                </value>
+            </block>
+            <block type="math_random_int">
+                <value name="FROM">
+                    <shadow type="math_number">
+                        <field name="NUM">1</field>
+                    </shadow>
+                </value>
+                <value name="TO">
+                    <shadow type="math_number">
+                        <field name="NUM">100</field>
+                    </shadow>
+                </value>
+            </block>
+        </category>
+
+        <category name="变量" colour="%{BKY_VARIABLES_HUE}" custom="VARIABLE"></category>
+
+        <category name="串口控制" colour="230">
+            <block type="serial_port_select"></block>
+            <block type="serial_config"></block>
+            <block type="device_address"></block>
+            <block type="serial_close"></block>
+            <block type="serial_save_settings"></block>
+        </category>
+
+        <category name="泵控制" colour="210">
+            <block type="pump_initialize"></block>
+            <block type="pump_set_volume_range">
+                <value name="VOLUME">
+                    <shadow type="math_number">
+                        <field name="NUM">25</field>
+                    </shadow>
+                </value>
+            </block>
+            <block type="pump_set_total_steps">
+                <value name="STEPS">
+                    <shadow type="math_number">
+                        <field name="NUM">6000</field>
+                    </shadow>
+                </value>
+            </block>
+            <block type="pump_switch_input"></block>
+            <block type="pump_switch_output"></block>
+            <block type="pump_set_speed">
+                <value name="SPEED">
+                    <shadow type="math_number">
+                        <field name="NUM">500</field>
+                    </shadow>
+                </value>
+            </block>
+            <block type="pump_aspirate">
+                <value name="VOLUME">
+                    <shadow type="math_number">
+                        <field name="NUM">15</field>
+                    </shadow>
+                </value>
+            </block>
+            <block type="pump_dispense">
+                <value name="VOLUME">
+                    <shadow type="math_number">
+                        <field name="NUM">15</field>
+                    </shadow>
+                </value>
+            </block>
+            <block type="pump_stop"></block>
+            <block type="pump_delay">
+                <value name="SECONDS">
+                    <shadow type="math_number">
+                        <field name="NUM">1</field>
+                    </shadow>
+                </value>
+            </block>
+        </category>
+    </xml>
+
+    <script>
+        var workspace = null;
+        var webBridge = null;
+
+        // 刷新串口列表
+        async function refreshPortList() {
+            console.log("refreshPortList called");
+            if (!webBridge || typeof webBridge.getAvailablePorts !== 'function') {
+                console.warn('WebBridge or getAvailablePorts not available');
+                return;
+            }
+
+            try {
+                // 获取串口列表 JSON
+                const jsonStr = webBridge.getAvailablePorts();
+                console.log("Got ports JSON string:", jsonStr);
+                
+                // 解析 JSON
+                const data = JSON.parse(jsonStr);
+                if (!data || !data.ports || !Array.isArray(data.ports)) {
+                    console.warn("Invalid ports data:", data);
+                    return;
+                }
+                
+                const ports = data.ports;
+                console.log("Available ports:", ports);
+                
+                // 更新所有串口选择块
+                const blocks = workspace.getAllBlocks(false);
+                console.log("Found blocks:", blocks.length);
+                blocks.forEach(block => {
+                    if (block.type === 'serial_port_select') {
+                        console.log("Updating block:", block.id);
+                        if (typeof block.updateOptions === 'function') {
+                            block.updateOptions(ports);
+                        } else {
+                            console.warn("Block has no updateOptions method:", block.id);
+                        }
+                    }
+                });
+                
+                // 刷新工具箱中的块
+                const toolbox = workspace.getToolbox();
+                if (toolbox) {
+                    const category = toolbox.getSelectedItem();
+                    if (category) {
+                        const flyout = workspace.getFlyout();
+                        if (flyout) {
+                            // 强制刷新飞出工具箱
+                            console.log("Refreshing flyout");
+                            flyout.show(category.getContents());
+                            
+                            // 更新飞出工具箱中的块
+                            const flyoutWorkspace = flyout.getWorkspace();
+                            const flyoutBlocks = flyoutWorkspace.getAllBlocks(false);
+                            console.log("Found flyout blocks:", flyoutBlocks.length);
+                            flyoutBlocks.forEach(block => {
+                                if (block.type === 'serial_port_select') {
+                                    console.log("Updating flyout block:", block.id);
+                                    if (typeof block.updateOptions === 'function') {
+                                        block.updateOptions(ports);
+                                    } else {
+                                        console.warn("Flyout block has no updateOptions method:", block.id);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+                
+            } catch (e) {
+                console.error('Failed to refresh ports:', e);
+                webBridge.log('Failed to refresh ports: ' + e.toString());
+            }
+        }
+        
+        // 移除定时刷新
+        // setInterval(async () => {
+        //     await refreshPortList();
+        // }, 1000);
+
+        // 初始化 Blockly 工作区
+        workspace = Blockly.inject('blocklyDiv', {
+            toolbox: document.getElementById('toolbox'),
+            grid: {
+                spacing: 20,
+                length: 3,
+                colour: '#ccc',
+                snap: true
+            },
+            zoom: {
+                controls: true,
+                wheel: true,
+                startScale: 1.0,
+                maxScale: 3,
+                minScale: 0.3,
+                scaleSpeed: 1.2
+            },
+            trashcan: true
+        });
+
+        // 注册工作区变更事件
+        workspace.addChangeListener(onWorkspaceChange);
+
+        // 生成代码并发送到 Python
+        function generateCode() {
+            if (!webBridge) {
+                console.error('WebBridge not available');
+                return;
+            }
+            
+            try {
+                // 生成 Python 代码
+                var code = Blockly.Python.workspaceToCode(workspace);
+                console.log("Generated code:", code);
+                
+                // 发送代码到 Python
+                if (code) {
+                    webBridge.codeGenerated.emit(code);
+                    console.log("Code sent to Python");
+                } else {
+                    console.warn("No code generated");
+                }
+                
+            } catch (e) {
+                console.error("Error generating code:", e);
+                webBridge.log("Error generating code: " + e.toString());
+            }
+        }
+
+        // 初始化 QWebChannel
+        new QWebChannel(qt.webChannelTransport, function (channel) {
+            // 获取 WebBridge 对象
+            webBridge = channel.objects.webBridge;
+            console.log("WebBridge initialized");
+
+            // 注册事件处理函数
+            if (webBridge) {
+                // 将 webBridge 添加到工作区
+                workspace.webBridge = webBridge;
+                console.log("Added webBridge to workspace");
+                
+                // 连接信号
+                webBridge.highlightBlock.connect(function (blockId) {
+                    highlightBlock(blockId);
+                });
+                
+                webBridge.portsUpdated.connect(function () {
+                    console.log("Received ports updated signal");
+                    refreshPortList();
+                });
+                
+                // 初始化时刷新串口列表
+                console.log("Requesting initial port list");
+                refreshPortList();
+            }
+        });
+    </script>
+</body>
+</html>
