@@ -61,12 +61,10 @@ class BlocklyWorkspace(QWebEngineView):
     def handle_code_generated(self, code):
         """处理生成的代码"""
         if code:
-            logger.info(f"Blockly生成的原始代码:\n{code}")
             # 移除多余的 blockId 注释
             code_lines = code.split('\n')
             clean_lines = [line for line in code_lines if not line.strip().startswith('# blockId:')]
             clean_code = '\n'.join(clean_lines)
-            logger.info(f"清理后的代码:\n{clean_code}")
             
             # 发送代码到代码编辑器
             if hasattr(self, 'code_editor'):

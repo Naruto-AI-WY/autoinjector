@@ -1,4 +1,4 @@
-from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
 import logging
 from serial.tools import list_ports
@@ -25,8 +25,23 @@ class SerialController(QObject):
         ports = self.get_available_ports()
         if ports:
             self.ports_discovered.emit(ports)
+            
+        # 添加定时器检查串口状态
+        self._check_timer = QTimer()
+        self._check_timer.timeout.connect(self._check_port_status)
+        self._check_timer.start(1000)  # 每秒检查一次
         
         logger.info("SerialController initialized")
+
+    def _check_port_status(self):
+        """检查串口状态"""
+        if self.is_connected:
+            # 检查串口是否仍然存在
+            current_ports = self.get_available_ports()
+            if self._port not in current_ports:
+                logger.warning(f"串口 {self._port} 已断开")
+                self.disconnect()
+                self.error_occurred.emit(f"串口 {self._port} 已断开连接")
 
     @property
     def is_connected(self) -> bool:
@@ -51,6 +66,11 @@ class SerialController(QObject):
                 - flowcontrol: 流控制
         """
         try:
+            # 检查端口是否存在
+            available_ports = self.get_available_ports()
+            if settings['port'] not in available_ports:
+                raise ConnectionError(f"串口 {settings['port']} 不存在")
+                
             # 如果已经连接，先断开
             if self.is_connected:
                 self.disconnect()
