@@ -22,13 +22,19 @@ logger = logging.getLogger(__name__)
 class WebBridge(QObject):
     """Web bridge for communication between QWebEngine and Python"""
     
-    # 信号定义
-    codeGenerated = pyqtSignal(str)
-    highlightBlock = pyqtSignal(str)
-    portsUpdated = pyqtSignal()  # 新增串口更新信号
+    # 定义信号
+    codeGeneratedSignal = pyqtSignal(str)  # 代码生成信号
+    highlightBlock = pyqtSignal(str)  # 高亮显示块信号
+    portsUpdated = pyqtSignal()  # 串口更新信号
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        
+    @pyqtSlot(str)
+    def handleCodeGenerated(self, code):
+        """处理从JavaScript生成的代码"""
+        logger.debug("WebBridge received code")
+        self.codeGeneratedSignal.emit(code)
     
     @pyqtSlot(str)
     def log(self, message):
@@ -261,19 +267,32 @@ class MainWindow(QMainWindow):
     def on_code_generated(self, code):
         """代码生成完成事件"""
         try:
-            # 执行生成的代码
-            self.execute_code(code)
+            # 更新代码编辑器
+            if self.code_editor:
+                self.code_editor.setPlainText(code)
         except Exception as e:
-            logger.error(f"代码执行出错: {str(e)}")
+            logger.error(f"更新代码编辑器失败: {str(e)}")
             
     def execute_code(self, code):
         """执行代码"""
+        if not code:
+            logger.warning("生成的代码为空")
+            return
+
         try:
-            # 使用 BlocklyWorkspace 的 execute_code 方法
-            self.blockly_workspace.execute_code(code)
+            # 创建一个新的代码执行环境
+            exec_globals = {
+                'print': lambda *args: logger.info(' '.join(map(str, args))),
+                'logger': logger,
+                'pump': self.pump,
+                'serial_controller': self.serial_controller
+            }
+            
+            # 执行代码
+            exec(code, exec_globals)
+            
         except Exception as e:
             logger.error(f"代码执行失败: {str(e)}")
-            raise
             
     def toggle_log_viewer(self):
         """切换日志查看器显示状态"""
@@ -360,8 +379,13 @@ class MainWindow(QMainWindow):
     def on_run_clicked(self):
         """运行按钮点击事件"""
         try:
-            # 获取生成的代码
-            self.blockly_workspace.get_generated_code()
+            # 从代码编辑器获取代码
+            code = self.code_editor.toPlainText()
+            if code:
+                # 执行代码
+                self.execute_code(code)
+            else:
+                logger.warning("没有可执行的代码")
         except Exception as e:
             logger.error(f"代码执行出错: {str(e)}")
             

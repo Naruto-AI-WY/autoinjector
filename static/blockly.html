@@ -344,15 +344,20 @@
 
         // 代码生成事件处理
         function onWorkspaceChange(event) {
-            if (event.type == Blockly.Events.FINISHED_LOADING) {
-                return;  // 不处理加载事件
-            }
-            
-            // 获取生成的代码
-            var code = Blockly.Python.workspaceToCode(workspace);
-            // 发送到 Python
-            if (typeof webBridge !== 'undefined') {
-                webBridge.codeGenerated(code);
+            // 只处理块变化和移动事件
+            if (event.type == Blockly.Events.BLOCK_CHANGE || 
+                event.type == Blockly.Events.BLOCK_CREATE ||
+                event.type == Blockly.Events.BLOCK_DELETE ||
+                event.type == Blockly.Events.BLOCK_MOVE) {
+                
+                console.log("Workspace changed, generating code...");
+                // 获取生成的代码
+                var code = Blockly.Python.workspaceToCode(workspace);
+                console.log("Generated code:", code);
+                // 发送到 Python
+                if (typeof webBridge !== 'undefined') {
+                    webBridge.handleCodeGenerated(code);
+                }
             }
         }
 

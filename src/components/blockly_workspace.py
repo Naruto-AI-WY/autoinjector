@@ -47,6 +47,9 @@ class BlocklyWorkspace(QWebEngineView):
             
             if self.web_bridge:
                 channel.registerObject('webBridge', self.web_bridge)
+                
+                # 连接代码生成信号
+                self.web_bridge.codeGeneratedSignal.connect(self.handle_code_generated)
         else:
             logger.error("Blockly页面加载失败")
 
@@ -59,6 +62,9 @@ class BlocklyWorkspace(QWebEngineView):
             channel = QWebChannel(self)
             self._page.setWebChannel(channel)
             channel.registerObject('webBridge', bridge)
+            
+            # 连接代码生成信号
+            self.web_bridge.codeGeneratedSignal.connect(self.handle_code_generated)
 
     def get_generated_code(self):
         """获取生成的代码"""
@@ -67,20 +73,19 @@ class BlocklyWorkspace(QWebEngineView):
     
     def handle_code_generated(self, code):
         """处理生成的代码"""
-        if code:
-            # 移除多余的 blockId 注释
-            code_lines = code.split('\n')
-            clean_lines = [line for line in code_lines if not line.strip().startswith('# blockId:')]
-            clean_code = '\n'.join(clean_lines)
-            
-            # 发送代码到代码编辑器
-            if hasattr(self, 'code_editor'):
-                self.code_editor.setPlainText(clean_code)
-            
-            # 发送信号
-            self.code_generated.emit(clean_code)
-        else:
-            logger.warning("没有生成任何代码")
+        logger.debug(f"收到生成的代码: {code}")
+        
+        # 移除多余的 blockId 注释
+        code_lines = code.split('\n') if code else []
+        clean_lines = [line for line in code_lines if not line.strip().startswith('# blockId:')]
+        clean_code = '\n'.join(clean_lines)
+        
+        # 发送代码到代码编辑器
+        if self.code_editor:
+            self.code_editor.setPlainText(clean_code)
+        
+        # 发送信号
+        self.code_generated.emit(clean_code)
     
     def highlight_block(self, block_id):
         """高亮显示指定的块"""
