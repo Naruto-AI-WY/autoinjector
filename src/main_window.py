@@ -207,6 +207,11 @@ class MainWindow(QMainWindow):
         # 创建工具栏布局
         toolbar_layout = QHBoxLayout()
         
+        # 添加新建按钮
+        self.new_button = QPushButton("新建程序")
+        self.new_button.clicked.connect(self._new_program)
+        toolbar_layout.addWidget(self.new_button)
+        
         # 添加保存按钮
         self.save_button = QPushButton("保存程序")
         self.save_button.clicked.connect(self._save_program)
@@ -438,6 +443,17 @@ class MainWindow(QMainWindow):
                 self.blockly_workspace._page.runJavaScript(js_code, handle_result)
             else:
                 logger.error("无法访问页面的 JavaScript 功能")
+
+    def _new_program(self):
+        """新建程序"""
+        try:
+            # 清空工作区
+            self.blockly_workspace._page.runJavaScript('workspace.clear();')
+            # 清空代码编辑器
+            self.code_editor.setPlainText('')
+            logger.info("已新建程序")
+        except Exception as e:
+            logger.error(f"新建程序失败: {str(e)}")
 
 class LineTracer:
     """行追踪器"""
