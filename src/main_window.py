@@ -291,6 +291,9 @@ class MainWindow(QMainWindow):
             # 执行代码
             exec(code, exec_globals)
             
+            # 代码执行完成提示
+            logger.info("程序执行完成")
+            
         except Exception as e:
             logger.error(f"代码执行失败: {str(e)}")
             
