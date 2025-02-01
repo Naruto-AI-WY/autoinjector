@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QSplitter, QMessageBox, QApplication, QSizePolicy)
+                             QSplitter, QMessageBox, QApplication, QSizePolicy, QFileDialog, QPushButton)
 from PyQt5.QtCore import Qt, QTimer, QMetaObject, Q_ARG, pyqtSignal, QObject, pyqtSlot
 from PyQt5.QtSerialPort import QSerialPortInfo
 from PyQt5.QtWebChannel import QWebChannel
@@ -34,6 +34,64 @@ class WebBridge(QObject):
     def log(self, message):
         """Log message from JavaScript"""
         logging.info(f"JS: {message}")
+    
+    @pyqtSlot(str)
+    def saveWorkspace(self, xml_text):
+        """保存工作区到文件"""
+        try:
+            file_name, _ = QFileDialog.getSaveFileName(
+                None, 
+                "保存程序",
+                "",
+                "Blockly 文件 (*.xml);;所有文件 (*.*)"
+            )
+            if file_name:
+                if not file_name.endswith('.xml'):
+                    file_name += '.xml'
+                with open(file_name, 'w', encoding='utf-8') as f:
+                    f.write(xml_text)
+                logger.info(f"程序已保存到: {file_name}")
+        except Exception as e:
+            logger.error(f"保存程序失败: {e}")
+    
+    @pyqtSlot(result=str)
+    def loadWorkspace(self):
+        """从文件加载工作区"""
+        try:
+            file_name, _ = QFileDialog.getOpenFileName(
+                None,
+                "加载程序",
+                "",
+                "Blockly 文件 (*.xml);;所有文件 (*.*)"
+            )
+            if file_name:
+                with open(file_name, 'r', encoding='utf-8') as f:
+                    xml_text = f.read()
+                logger.info(f"正在从 {file_name} 加载程序")
+                logger.debug(f"加载的 XML 内容: {xml_text[:200]}...")  # 只显示前200个字符
+                return xml_text
+        except Exception as e:
+            logger.error(f"加载程序失败: {e}")
+        return ""
+    
+    @pyqtSlot(str)
+    def saveWorkspace(self, xml_text):
+        """保存工作区到文件"""
+        try:
+            file_name, _ = QFileDialog.getSaveFileName(
+                None, 
+                "保存程序",
+                "",
+                "Blockly 文件 (*.xml);;所有文件 (*.*)"
+            )
+            if file_name:
+                if not file_name.endswith('.xml'):
+                    file_name += '.xml'
+                with open(file_name, 'w', encoding='utf-8') as f:
+                    f.write(xml_text)
+                logger.info(f"程序已保存到: {file_name}")
+        except Exception as e:
+            logger.error(f"保存程序失败: {e}")
     
     @pyqtSlot(result=str)
     def getAvailablePorts(self):
@@ -93,12 +151,12 @@ class MainWindow(QMainWindow):
         
         # 创建其他界面元素
         self.toolbar = Toolbar()
-        self.blockly = BlocklyWorkspace(self)
-        self.blockly.set_web_bridge(self.web_bridge)  # 设置 Web Bridge
+        self.blockly_workspace = BlocklyWorkspace(self)
+        self.blockly_workspace.set_web_bridge(self.web_bridge)  # 设置 Web Bridge
         self.code_editor = CodeEditor()
         
         # 设置代码编辑器
-        self.blockly.code_editor = self.code_editor
+        self.blockly_workspace.code_editor = self.code_editor
         
         # 创建泵控制器（在串口控制器之后创建）
         self.pump = PumpController(self.serial_controller)
@@ -116,7 +174,7 @@ class MainWindow(QMainWindow):
         self.toolbar.port_changed.connect(self.on_port_changed)
         
         # 连接其他信号
-        self.blockly.code_generated.connect(self.on_code_generated)
+        self.blockly_workspace.code_generated.connect(self.on_code_generated)
         self.serial_controller.data_received.connect(self.on_data_received)
         self.serial_controller.ports_discovered.connect(self.on_ports_discovered)
         
@@ -140,15 +198,31 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(5)
         
+        # 创建工具栏布局
+        toolbar_layout = QHBoxLayout()
+        
+        # 添加保存按钮
+        self.save_button = QPushButton("保存程序")
+        self.save_button.clicked.connect(self._save_program)
+        toolbar_layout.addWidget(self.save_button)
+        
+        # 添加加载按钮
+        self.load_button = QPushButton("加载程序")
+        self.load_button.clicked.connect(self._load_program)
+        toolbar_layout.addWidget(self.load_button)
+        
         # 添加工具栏
-        main_layout.addWidget(self.toolbar)
+        toolbar_layout.addWidget(self.toolbar)
+        
+        toolbar_layout.addStretch()
+        main_layout.addLayout(toolbar_layout)
         
         # 创建水平分割器
         hsplitter = QSplitter(Qt.Horizontal)
         main_layout.addWidget(hsplitter)
         
         # 添加 Blockly 工作区
-        hsplitter.addWidget(self.blockly)
+        hsplitter.addWidget(self.blockly_workspace)
         
         # 创建右侧垂直分割器
         vsplitter = QSplitter(Qt.Vertical)
@@ -196,7 +270,7 @@ class MainWindow(QMainWindow):
         """执行代码"""
         try:
             # 使用 BlocklyWorkspace 的 execute_code 方法
-            self.blockly.execute_code(code)
+            self.blockly_workspace.execute_code(code)
         except Exception as e:
             logger.error(f"代码执行失败: {str(e)}")
             raise
@@ -232,8 +306,8 @@ class MainWindow(QMainWindow):
             logger.info(f"发现可用串口: {', '.join(all_ports)}")
             
             # 通知 WebBridge 更新串口列表
-            if self.blockly and self.blockly.web_bridge:
-                self.blockly.web_bridge.portsUpdated.emit()
+            if self.blockly_workspace and self.blockly_workspace.web_bridge:
+                self.blockly_workspace.web_bridge.portsUpdated.emit()
                 logger.debug("已发送串口更新信号")
             
         except Exception as e:
@@ -287,7 +361,7 @@ class MainWindow(QMainWindow):
         """运行按钮点击事件"""
         try:
             # 获取生成的代码
-            self.blockly.get_generated_code()
+            self.blockly_workspace.get_generated_code()
         except Exception as e:
             logger.error(f"代码执行出错: {str(e)}")
             
@@ -308,6 +382,35 @@ class MainWindow(QMainWindow):
             # 发送串口更新信号
             if hasattr(self, 'web_bridge'):
                 self.web_bridge.portsUpdated.emit()
+
+    def _save_program(self):
+        """保存程序"""
+        if self.blockly_workspace and self.blockly_workspace._page:
+            self.blockly_workspace._page.runJavaScript("saveWorkspace();")
+        else:
+            logger.error("无法访问页面的 JavaScript 功能")
+    
+    def _load_program(self):
+        """加载程序"""
+        xml_text = self.web_bridge.loadWorkspace()
+        if xml_text:
+            if self.blockly_workspace and self.blockly_workspace._page:
+                # 转义特殊字符
+                xml_text = xml_text.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$')
+                
+                # 构造 JavaScript 代码
+                js_code = f"loadWorkspace(`{xml_text}`)"
+                
+                # 添加回调函数来检查结果
+                def handle_result(success):
+                    if success:
+                        logger.info("程序加载成功")
+                    else:
+                        logger.error("程序加载失败")
+                
+                self.blockly_workspace._page.runJavaScript(js_code, handle_result)
+            else:
+                logger.error("无法访问页面的 JavaScript 功能")
 
 class LineTracer:
     """行追踪器"""

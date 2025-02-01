@@ -18,6 +18,7 @@
         #blocklyDiv {
             height: 100%;
             width: 100%;
+            position: absolute;
         }
         /* 工具箱样式 */
         .blocklyToolboxDiv {
@@ -171,7 +172,25 @@
     </xml>
 
     <script>
-        var workspace = null;
+        var workspace = Blockly.inject('blocklyDiv', {
+            toolbox: document.getElementById('toolbox'),
+            grid: {
+                spacing: 20,
+                length: 3,
+                colour: '#ccc',
+                snap: true
+            },
+            zoom: {
+                controls: true,
+                wheel: true,
+                startScale: 1.0,
+                maxScale: 3,
+                minScale: 0.3,
+                scaleSpeed: 1.2
+            },
+            trashcan: true
+        });
+
         var webBridge = null;
 
         // 刷新串口列表
@@ -245,87 +264,110 @@
                 webBridge.log('Failed to refresh ports: ' + e.toString());
             }
         }
-        
-        // 移除定时刷新
-        // setInterval(async () => {
-        //     await refreshPortList();
-        // }, 1000);
 
-        // 初始化 Blockly 工作区
-        workspace = Blockly.inject('blocklyDiv', {
-            toolbox: document.getElementById('toolbox'),
-            grid: {
-                spacing: 20,
-                length: 3,
-                colour: '#ccc',
-                snap: true
-            },
-            zoom: {
-                controls: true,
-                wheel: true,
-                startScale: 1.0,
-                maxScale: 3,
-                minScale: 0.3,
-                scaleSpeed: 1.2
-            },
-            trashcan: true
-        });
-
-        // 注册工作区变更事件
-        workspace.addChangeListener(onWorkspaceChange);
-
-        // 生成代码并发送到 Python
-        function generateCode() {
-            if (!webBridge) {
-                console.error('WebBridge not available');
-                return;
-            }
-            
+        // 添加保存工作区的函数
+        function saveWorkspace() {
             try {
-                // 生成 Python 代码
-                var code = Blockly.Python.workspaceToCode(workspace);
-                console.log("Generated code:", code);
+                console.log("开始保存工作区...");
                 
-                // 发送代码到 Python
-                if (code) {
-                    webBridge.codeGenerated.emit(code);
-                    console.log("Code sent to Python");
-                } else {
-                    console.warn("No code generated");
-                }
+                // 获取工作区的所有块
+                var xml = Blockly.Xml.workspaceToDom(workspace, true);  // true 表示使用可读格式
                 
+                // 确保 XML 有正确的命名空间
+                xml.setAttribute('xmlns', 'https://developers.google.com/blockly/xml');
+                
+                // 转换为文本
+                var xmlText = Blockly.Xml.domToText(xml);
+                
+                console.log("XML内容:", xmlText.substring(0, 200) + "...");  // 只显示前200个字符
+                webBridge.saveWorkspace(xmlText);
+                console.log("工作区保存完成");
             } catch (e) {
-                console.error("Error generating code:", e);
-                webBridge.log("Error generating code: " + e.toString());
+                console.error('保存工作区失败:', e);
+                if (webBridge) {
+                    webBridge.log('保存工作区失败: ' + e.toString());
+                }
             }
         }
 
-        // 初始化 QWebChannel
-        new QWebChannel(qt.webChannelTransport, function (channel) {
-            // 获取 WebBridge 对象
-            webBridge = channel.objects.webBridge;
-            console.log("WebBridge initialized");
-
-            // 注册事件处理函数
-            if (webBridge) {
-                // 将 webBridge 添加到工作区
-                workspace.webBridge = webBridge;
-                console.log("Added webBridge to workspace");
+        // 添加加载工作区的函数
+        function loadWorkspace(xmlText) {
+            try {
+                console.log("开始加载工作区...");
+                console.log("XML内容:", xmlText.substring(0, 200) + "...");  // 只显示前200个字符
                 
-                // 连接信号
-                webBridge.highlightBlock.connect(function (blockId) {
-                    highlightBlock(blockId);
-                });
+                workspace.clear();  // 清除当前工作区
                 
-                webBridge.portsUpdated.connect(function () {
-                    console.log("Received ports updated signal");
-                    refreshPortList();
-                });
+                try {
+                    // 尝试直接解析
+                    var xml = Blockly.Xml.textToDom(xmlText);
+                    Blockly.Xml.domToWorkspace(xml, workspace);
+                } catch (parseError) {
+                    console.log("直接解析失败，尝试使用 DOMParser:", parseError);
+                    
+                    // 使用 DOMParser 解析
+                    var parser = new DOMParser();
+                    var xmlDoc = parser.parseFromString(xmlText, "text/xml");
+                    
+                    // 检查解析错误
+                    var parserError = xmlDoc.getElementsByTagName("parsererror");
+                    if (parserError.length) {
+                        throw new Error("XML 解析错误: " + parserError[0].textContent);
+                    }
+                    
+                    // 获取根元素
+                    var xml = xmlDoc.documentElement;
+                    if (!xml) {
+                        throw new Error("无法获取 XML 根元素");
+                    }
+                    
+                    // 加载到工作区
+                    Blockly.Xml.domToWorkspace(xml, workspace);
+                }
                 
-                // 初始化时刷新串口列表
-                console.log("Requesting initial port list");
-                refreshPortList();
+                console.log("工作区加载完成");
+                
+                // 触发工作区变化事件
+                if (workspace.fireChangeListener) {
+                    workspace.fireChangeListener({type: Blockly.Events.FINISHED_LOADING});
+                }
+                
+                return true;
+            } catch (e) {
+                console.error('加载工作区失败:', e);
+                if (webBridge) {
+                    webBridge.log('加载工作区失败: ' + e.toString());
+                }
+                return false;
             }
+        }
+
+        // 代码生成事件处理
+        function onWorkspaceChange(event) {
+            if (event.type == Blockly.Events.FINISHED_LOADING) {
+                return;  // 不处理加载事件
+            }
+            
+            // 获取生成的代码
+            var code = Blockly.Python.workspaceToCode(workspace);
+            // 发送到 Python
+            if (typeof webBridge !== 'undefined') {
+                webBridge.codeGenerated(code);
+            }
+        }
+
+        // 添加工作区变化监听器
+        workspace.addChangeListener(onWorkspaceChange);
+
+        // 注册 QWebChannel
+        new QWebChannel(qt.webChannelTransport, function(channel) {
+            window.webBridge = channel.objects.webBridge;
+            webBridge = channel.objects.webBridge;
+            
+            // 监听端口更新
+            webBridge.portsUpdated.connect(function() {
+                refreshPortList();
+            });
         });
     </script>
 </body>

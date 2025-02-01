@@ -8,6 +8,8 @@ import sys
 
 logger = logging.getLogger(__name__)
 
+STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../static'))
+
 class BlocklyPage(QWebEnginePage):
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
         logger.debug(f"JS[{lineNumber}]: {message}")
@@ -18,45 +20,50 @@ class BlocklyWorkspace(QWebEngineView):
     # 定义信号
     code_generated = pyqtSignal(str)
     
-    def __init__(self, main_window=None):
+    def __init__(self, parent=None):
         """初始化工作区"""
-        super().__init__()
-        self.main_window = main_window
+        super().__init__(parent)
+        self.main_window = parent
         self.web_bridge = None
         self.code_editor = None
+        self._page = None
         
-        # 加载 Blockly 页面
-        self.load_blockly_page()
-        
-    def load_blockly_page(self):
-        """加载 Blockly 页面"""
         # 创建自定义页面
-        self.page = BlocklyPage(self)
-        self.setPage(self.page)
+        self._page = BlocklyPage(self)
+        self.setPage(self._page)
         
-        # 创建 WebChannel
-        self.channel = QWebChannel()
+        # 设置页面
+        self.setUrl(QUrl.fromLocalFile(os.path.join(STATIC_DIR, 'blockly.html')))
         
-        # 创建并添加 WebBridge
-        from main_window import WebBridge
-        self.web_bridge = None  # 将在 MainWindow 中设置
-        
-        # 连接 WebBridge 信号
-        # self.web_bridge.codeGenerated.connect(self.handle_code_generated)
-        
-        # 设置 WebChannel
-        self.page.setWebChannel(self.channel)
-        
-        # 加载 Blockly 页面
-        html_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../static/blockly.html'))
-        self.setUrl(QUrl.fromLocalFile(html_path))
-    
+        # 等待页面加载完成
+        self.loadFinished.connect(self._on_load_finished)
+
+    def _on_load_finished(self, ok):
+        """页面加载完成时的处理"""
+        if ok:
+            # 设置 Web Channel
+            channel = QWebChannel(self)
+            self._page.setWebChannel(channel)
+            
+            if self.web_bridge:
+                channel.registerObject('webBridge', self.web_bridge)
+        else:
+            logger.error("Blockly页面加载失败")
+
     def set_web_bridge(self, bridge):
-        """设置 Web Bridge"""
+        """设置Web Bridge"""
         self.web_bridge = bridge
-        self.channel.registerObject('webBridge', bridge)
-        logger.debug("Web Bridge 已设置")
-        self.web_bridge.codeGenerated.connect(self.handle_code_generated)
+        
+        # 如果页面已加载，立即注册bridge
+        if self._page:
+            channel = QWebChannel(self)
+            self._page.setWebChannel(channel)
+            channel.registerObject('webBridge', bridge)
+
+    def get_generated_code(self):
+        """获取生成的代码"""
+        if self._page:
+            self._page.runJavaScript('Blockly.Python.workspaceToCode(workspace);', self.handle_code_generated)
     
     def handle_code_generated(self, code):
         """处理生成的代码"""
@@ -75,17 +82,10 @@ class BlocklyWorkspace(QWebEngineView):
         else:
             logger.warning("没有生成任何代码")
     
-    def get_generated_code(self):
-        """获取生成的代码"""
-        self.page.runJavaScript(
-            'Blockly.Python.workspaceToCode(workspace);',
-            self.handle_code_generated
-        )
-    
     def highlight_block(self, block_id):
         """高亮显示指定的块"""
-        if hasattr(self, 'web_bridge'):
-            self.web_bridge.highlightBlock.emit(block_id)
+        if self._page:
+            self._page.runJavaScript(f'highlightBlock("{block_id}");')
     
     def execute_code(self, code):
         """执行生成的代码
@@ -125,3 +125,8 @@ class BlocklyWorkspace(QWebEngineView):
         finally:
             # 清除追踪器
             sys.settrace(None)
+
+    @property
+    def page(self):
+        """获取页面对象"""
+        return self._page
