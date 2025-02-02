@@ -2,6 +2,7 @@ from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
 import logging
 from serial.tools import list_ports
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -177,10 +178,63 @@ class SerialController(QObject):
             return data
         return bytes()
 
+    def read_with_retry(self, size: int, retries: int = 3, timeout: float = 2.0) -> bytes:
+        """读取指定字节数的数据，带重试和超时机制
+        
+        Args:
+            size: 要读取的字节数
+            retries: 重试次数
+            timeout: 每次重试的超时时间（秒）
+        
+        Returns:
+            bytes: 读取的数据
+        
+        Raises:
+            ConnectionError: 串口未连接时抛出
+        """
+        if not self.is_connected:
+            logger.error("Attempted to read while not connected")
+            raise ConnectionError("串口未连接")
+
+        attempt = 0
+        while attempt < retries:
+            data = self.serial.readAll().data()
+            if data:
+                logger.debug(f"Read data: {data.hex()}")  # 使用十六进制显示
+                return data
+            else:
+                logger.warning(f"No data received, retrying... ({attempt + 1}/{retries})")
+                time.sleep(timeout)
+                attempt += 1
+
+        logger.error("Failed to receive data after multiple attempts")
+        return bytes()
+
     def send_command(self, command):
-        """发送命令"""
+        """发送命令并等待反馈
+        
+        Args:
+            command: 要发送的命令
+            
+        Returns:
+            bool: 命令是否成功执行
+        """
         try:
-            return self.write(command.encode())
+            # 发送命令
+            if not self.write(command.encode()):
+                return False
+                
+            # 等待并读取反馈
+            response = self.read_with_retry(size=1024, retries=3, timeout=1.0)
+            if response:
+                logger.info(f"<<< {response.hex()}")  # 使用十六进制显示接收到的数据
+                self.data_received.emit(response.decode())  # 发送反馈信号
+                return True
+            else:
+                logger.error("No response received from device")
+                self.error_occurred.emit("未收到设备响应")
+                return False
+                
         except Exception as e:
             logger.error(f"Error sending command: {e}")
             self.error_occurred.emit(f"发送命令失败：{str(e)}")

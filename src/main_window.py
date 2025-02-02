@@ -7,6 +7,7 @@ import logging
 import json
 from serial.tools import list_ports
 import sys
+import ast
 
 from components.blockly_workspace import BlocklyWorkspace
 from components.code_editor import CodeEditor
@@ -191,6 +192,9 @@ class MainWindow(QMainWindow):
         # 初始化串口列表并发送更新信号
         self.update_ports()
         
+        # 添加程序执行控制标志
+        self.is_running = False
+        
     def init_ui(self):
         """初始化UI"""
         # 设置窗口标题
@@ -286,6 +290,9 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            # 设置运行标志
+            self.is_running = True
+            
             # 创建一个新的代码执行环境
             exec_globals = {
                 'print': lambda *args: logger.info(' '.join(map(str, args))),
@@ -294,18 +301,73 @@ class MainWindow(QMainWindow):
                 'serial_controller': self.serial_controller,
                 'SerialController': SerialController,
                 'ValveController': ValveController,
-                'PumpController': PumpController
+                'PumpController': PumpController,
+                # 包装泵的方法，检查运行状态
+                'wrapped_pump': self._create_wrapped_pump(),
+                'wrapped_serial': self._create_wrapped_serial()
             }
+            
+            # 替换代码中的 pump 和 serial_controller 为包装后的版本
+            code = code.replace('pump.', 'wrapped_pump.')
+            code = code.replace('serial_controller.', 'wrapped_serial.')
             
             # 执行代码
             exec(code, exec_globals)
             
             # 代码执行完成提示
-            logger.info("程序执行完成")
+            if self.is_running:  # 只有在正常完成时才显示
+                logger.info("程序执行完成")
             
         except Exception as e:
-            logger.error(f"代码执行失败: {str(e)}")
+            if not self.is_running:
+                logger.info("程序已停止")
+            else:
+                logger.error(f"代码执行失败: {str(e)}")
+        finally:
+            self.is_running = False  # 确保运行标志被重置
             
+    def _create_wrapped_pump(self):
+        """创建包装后的泵对象，每个方法调用前都会检查运行状态"""
+        class WrappedPump:
+            def __init__(self, parent, pump):
+                self._parent = parent
+                self._pump = pump
+                
+            def __getattr__(self, name):
+                # 获取原始方法
+                attr = getattr(self._pump, name)
+                if callable(attr):
+                    # 如果是方法，返回包装后的版本
+                    def wrapped_method(*args, **kwargs):
+                        if not self._parent.is_running:
+                            raise InterruptedError("程序已停止")
+                        return attr(*args, **kwargs)
+                    return wrapped_method
+                return attr
+                
+        return WrappedPump(self, self.pump)
+        
+    def _create_wrapped_serial(self):
+        """创建包装后的串口对象，每个方法调用前都会检查运行状态"""
+        class WrappedSerial:
+            def __init__(self, parent, serial):
+                self._parent = parent
+                self._serial = serial
+                
+            def __getattr__(self, name):
+                # 获取原始方法
+                attr = getattr(self._serial, name)
+                if callable(attr):
+                    # 如果是方法，返回包装后的版本
+                    def wrapped_method(*args, **kwargs):
+                        if not self._parent.is_running:
+                            raise InterruptedError("程序已停止")
+                        return attr(*args, **kwargs)
+                    return wrapped_method
+                return attr
+                
+        return WrappedSerial(self, self.serial_controller)
+        
     def toggle_log_viewer(self):
         """切换日志查看器显示状态"""
         if self.log_viewer.isVisible():
@@ -404,10 +466,24 @@ class MainWindow(QMainWindow):
     def on_stop_clicked(self):
         """停止按钮点击事件"""
         try:
-            logger.info("正在停止...")
-            if hasattr(self, 'pump'):
-                self.pump.stop()
-            logger.info("已停止")
+            logger.info("正在停止程序...")
+            # 停止程序执行
+            self.is_running = False
+            
+            # 如果串口已连接，先停止泵再断开连接
+            if hasattr(self, 'serial_controller') and self.serial_controller.is_connected:
+                if hasattr(self, 'pump'):
+                    try:
+                        self.pump.stop()
+                    except Exception as e:
+                        logger.error(f"停止泵时出错: {str(e)}")
+                # 然后再断开串口连接
+                try:
+                    self.serial_controller.disconnect()
+                except Exception as e:
+                    logger.error(f"断开串口时出错: {str(e)}")
+                    
+            logger.info("程序已停止")
         except Exception as e:
             logger.error(f"停止时出错: {str(e)}")
 

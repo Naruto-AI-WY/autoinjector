@@ -30,11 +30,32 @@
         
         /* 工具箱样式 */
         .blocklyToolboxDiv {
-            font-size: 16px !important;
-            background-color: #2c3e50 !important;
-            color: white !important;
+            font-size: 25px !important;
+            background-color: #fffacd !important;  /* 浅黄色 */
+            color: #333 !important;  /* 深色文字，提高可读性 */
+            border-right: 2px solid #ddd !important;  /* 添加右侧边框 */
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1) !important;  /* 添加阴影效果 */
         }
         
+        /* 确保工具箱中的所有文本都使用相同的字体大小 */
+        .blocklyToolboxDiv .blocklyTreeLabel {
+            font-size: 25px !important;
+        }
+        
+        /* 工具箱中的类别样式 */
+        .blocklyToolboxDiv .blocklyTreeRow {
+            height: auto !important;
+            line-height: 35px !important;
+            padding: 5px !important;
+            border-bottom: 1px solid #eee !important;  /* 为每个类别添加底部边框 */
+            transition: background-color 0.2s !important;  /* 添加悬停动画效果 */
+        }
+        
+        /* 工具箱类别悬停效果 */
+        .blocklyToolboxDiv .blocklyTreeRow:hover {
+            background-color: rgba(0, 0, 0, 0.05) !important;  /* 悬停时略微变暗 */
+        }
+
         /* 选中块的样式 */
         .blocklySelected>.blocklyPath {
             stroke: #ffeb3b !important;
