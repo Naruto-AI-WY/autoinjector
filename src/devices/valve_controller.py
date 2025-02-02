@@ -77,12 +77,15 @@ class ValveController:
             checksum ^= byte
         return checksum
     
-    def _send_command(self, command: list, expected_length: int = 8) -> Optional[bytes]:
+    def _send_command(self, command: list, expected_length: int = 8, retry_count: int = 3, retry_timeout: float = 1.0, read_timeout: float = 2.0) -> Optional[bytes]:
         """发送命令并接收响应
         
         Args:
             command: 命令字节列表
             expected_length: 期望的响应长度
+            retry_count: 最大重试次数
+            retry_timeout: 每次重试之间的等待时间（秒）
+            read_timeout: 每次读取的超时时间（秒）
             
         Returns:
             Optional[bytes]: 响应数据，如果出错则返回 None
@@ -103,16 +106,20 @@ class ValveController:
             else:
                 logger.info(f"发送指令: {cmd_str}")
             
-            # 发送命令，最多重试3次
-            for attempt in range(3):
+            # 发送命令，最多重试指定次数
+            for attempt in range(retry_count):
                 try:
                     if not self.serial_controller.write(cmd_bytes):
-                        logger.warning(f"发送命令失败，尝试重试... ({attempt + 1}/3)")
-                        time.sleep(0.5)  # 等待500ms后重试
+                        logger.warning(f"发送命令失败，尝试重试... ({attempt + 1}/{retry_count})")
+                        time.sleep(retry_timeout)  # 等待指定时间后重试
                         continue
                         
                     # 读取响应，使用带重试的读取方法
-                    response = self.serial_controller.read_with_retry(expected_length, retries=3, timeout=1.0)
+                    response = self.serial_controller.read_with_retry(
+                        size=expected_length,
+                        retries=retry_count,
+                        timeout=read_timeout
+                    )
                     
                     # 记录接收到的数据
                     if response:
@@ -124,17 +131,19 @@ class ValveController:
                             logger.info(f"接收数据: {resp_str}")
                             
                         if len(response) != expected_length:
-                            logger.warning(f"响应长度错误: 期望 {expected_length} 字节，实际收到 {len(response)} 字节")
+                            logger.warning(f"响应长度错误: 期望 {expected_length} 字节，实际收到 {len(response)} 字节，尝试重试... ({attempt + 1}/{retry_count})")
+                            time.sleep(retry_timeout)  # 等待指定时间后重试
                             continue
                             
                         return response
                     else:
-                        logger.warning(f"未接收到数据，尝试重试... ({attempt + 1}/3)")
+                        logger.warning(f"未接收到数据，尝试重试... ({attempt + 1}/{retry_count})")
+                        time.sleep(retry_timeout)  # 等待指定时间后重试
                         continue
                         
                 except Exception as e:
-                    logger.warning(f"通信出错: {str(e)}，尝试重试... ({attempt + 1}/3)")
-                    time.sleep(0.5)  # 等待500ms后重试
+                    logger.warning(f"通信出错: {str(e)}，尝试重试... ({attempt + 1}/{retry_count})")
+                    time.sleep(retry_timeout)  # 等待指定时间后重试
                     continue
                     
             logger.error("发送命令失败: 重试次数已用完")
