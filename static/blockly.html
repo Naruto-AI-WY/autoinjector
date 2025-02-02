@@ -8,41 +8,88 @@
     <script src="https://unpkg.com/blockly@10.2.2/blocks_compressed.js"></script>
     <script src="https://unpkg.com/blockly@10.2.2/python_compressed.js"></script>
     <script src="https://unpkg.com/blockly@10.2.2/msg/zh-hans.js"></script>
+    <script src="codemirror/lib/codemirror.js"></script>
+    <script src="codemirror/mode/python/python.js"></script>
+    <link rel="stylesheet" href="codemirror/lib/codemirror.css">
+    <link rel="stylesheet" href="codemirror/theme/monokai.css">
     <script src="blocks/serial_blocks.js"></script>
     <script src="blocks/pump_blocks.js"></script>
+    <script src="blocks/valve_blocks.js"></script>
     <style>
         html, body {
             height: 100%;
             margin: 0;
+            padding: 0;
         }
+        
         #blocklyDiv {
             height: 100%;
             width: 100%;
             position: absolute;
         }
+        
         /* 工具箱样式 */
         .blocklyToolboxDiv {
             font-size: 16px !important;
-            padding: 8px;
+            background-color: #2c3e50 !important;
+            color: white !important;
         }
-        .blocklyTreeLabel {
-            font-size: 24px !important;
-            padding: 4px !important;
-        }
-        .blocklyTreeRow {
-            height: 40px !important;
-            line-height: 40px !important;
-        }
-        /* 高亮显示样式 */
-        .blocklyHighlighted > .blocklyPath {
+        
+        /* 选中块的样式 */
+        .blocklySelected>.blocklyPath {
             stroke: #ffeb3b !important;
             stroke-width: 3px !important;
             filter: drop-shadow(0 0 5px rgba(255, 235, 59, 0.5));
+        }
+
+        /* 编辑器容器样式 */
+        #codeDiv, #outputDiv {
+            position: absolute;
+            right: 0;
+            width: 40%;
+        }
+
+        #codeDiv {
+            top: 0;
+            height: 50%;
+        }
+
+        #outputDiv {
+            top: 50%;
+            height: 50%;
+        }
+
+        /* CodeMirror 样式 */
+        .CodeMirror {
+            height: 100% !important;
+            border-left: none !important;
+        }
+
+        .CodeMirror-gutters {
+            display: none !important;
+        }
+
+        .CodeMirror-gutter {
+            display: none !important;
+        }
+
+        .CodeMirror-gutter-wrapper {
+            display: none !important;
+        }
+
+        .CodeMirror-linenumber {
+            display: none !important;
+        }
+
+        .CodeMirror-sizer {
+            margin-left: 0 !important;
         }
     </style>
 </head>
 <body>
     <div id="blocklyDiv"></div>
+    <div id="codeDiv"></div>
+    <div id="outputDiv"></div>
 
     <xml id="toolbox" style="display: none">
         <category name="逻辑" colour="%{BKY_LOGIC_HUE}">
@@ -169,6 +216,13 @@
                 </value>
             </block>
         </category>
+
+        <category name="旋转阀" colour="230">
+            <block type="init_valve"></block>
+            <block type="rotate_valve"></block>
+            <block type="get_valve_position"></block>
+            <block type="get_valve_last_position"></block>
+        </category>
     </xml>
 
     <script>
@@ -194,75 +248,99 @@
         var webBridge = null;
 
         // 刷新串口列表
-        async function refreshPortList() {
-            console.log("refreshPortList called");
-            if (!webBridge || typeof webBridge.getAvailablePorts !== 'function') {
-                console.warn('WebBridge or getAvailablePorts not available');
-                return;
+        function refreshPortList() {
+            if (webBridge) {
+                webBridge.refreshPortList();
             }
+        }
 
-            try {
-                // 获取串口列表 JSON
-                const jsonStr = webBridge.getAvailablePorts();
-                console.log("Got ports JSON string:", jsonStr);
-                
-                // 解析 JSON
-                const data = JSON.parse(jsonStr);
-                if (!data || !data.ports || !Array.isArray(data.ports)) {
-                    console.warn("Invalid ports data:", data);
-                    return;
-                }
-                
-                const ports = data.ports;
-                console.log("Available ports:", ports);
-                
-                // 更新所有串口选择块
-                const blocks = workspace.getAllBlocks(false);
-                console.log("Found blocks:", blocks.length);
-                blocks.forEach(block => {
+        // 处理 Python 返回的串口列表
+        function handlePortList(ports) {
+            console.log("Received ports:", ports);
+            var workspace = Blockly.getMainWorkspace();
+            if (workspace) {
+                var blocks = workspace.getAllBlocks();
+                blocks.forEach(function(block) {
                     if (block.type === 'serial_port_select') {
-                        console.log("Updating block:", block.id);
-                        if (typeof block.updateOptions === 'function') {
-                            block.updateOptions(ports);
-                        } else {
-                            console.warn("Block has no updateOptions method:", block.id);
+                        var currentPort = block.getFieldValue('PORT');
+                        var dropdown = new Blockly.FieldDropdown(function() {
+                            return ports.map(function(port) {
+                                return [port, port];
+                            });
+                        });
+                        block.getInput('PORT').removeField('PORT');
+                        block.getInput('PORT').appendField(dropdown, 'PORT');
+                        if (ports.includes(currentPort)) {
+                            block.setFieldValue(currentPort, 'PORT');
                         }
                     }
                 });
-                
-                // 刷新工具箱中的块
-                const toolbox = workspace.getToolbox();
-                if (toolbox) {
-                    const category = toolbox.getSelectedItem();
-                    if (category) {
-                        const flyout = workspace.getFlyout();
-                        if (flyout) {
-                            // 强制刷新飞出工具箱
-                            console.log("Refreshing flyout");
-                            flyout.show(category.getContents());
-                            
-                            // 更新飞出工具箱中的块
-                            const flyoutWorkspace = flyout.getWorkspace();
-                            const flyoutBlocks = flyoutWorkspace.getAllBlocks(false);
-                            console.log("Found flyout blocks:", flyoutBlocks.length);
-                            flyoutBlocks.forEach(block => {
-                                if (block.type === 'serial_port_select') {
-                                    console.log("Updating flyout block:", block.id);
-                                    if (typeof block.updateOptions === 'function') {
-                                        block.updateOptions(ports);
-                                    } else {
-                                        console.warn("Flyout block has no updateOptions method:", block.id);
-                                    }
-                                }
-                            });
-                        }
-                    }
-                }
-                
-            } catch (e) {
-                console.error('Failed to refresh ports:', e);
-                webBridge.log('Failed to refresh ports: ' + e.toString());
             }
+        }
+
+        // 代码生成事件处理
+        function onWorkspaceChange(event) {
+            // 只处理块变化和移动事件
+            if (event.type == Blockly.Events.BLOCK_CHANGE || 
+                event.type == Blockly.Events.BLOCK_CREATE ||
+                event.type == Blockly.Events.BLOCK_DELETE ||
+                event.type == Blockly.Events.BLOCK_MOVE) {
+                
+                console.log("Workspace changed, generating code...");
+                // 获取生成的代码
+                var code = Blockly.Python.workspaceToCode(workspace);
+                console.log("Generated code:", code);
+                // 发送到 Python
+                if (typeof webBridge !== 'undefined') {
+                    webBridge.handleCodeGenerated(code);
+                }
+            }
+        }
+
+        // 添加工作区变化监听器
+        workspace.addChangeListener(onWorkspaceChange);
+
+        // 注册 QWebChannel
+        new QWebChannel(qt.webChannelTransport, function(channel) {
+            window.webBridge = channel.objects.webBridge;
+            // 连接信号
+            webBridge.portListUpdated.connect(handlePortList);
+            webBridge.ready.connect(function() {
+                console.log("Web bridge is ready");
+                refreshPortList();
+            });
+        });
+        
+        // 初始化代码编辑器
+        codeEditor = CodeMirror(document.getElementById('codeDiv'), {
+            mode: 'python',
+            theme: 'monokai',
+            lineNumbers: false,
+            readOnly: true,
+            scrollbarStyle: null,  // 禁用默认滚动条样式
+            viewportMargin: Infinity,
+            tabSize: 4,
+            indentUnit: 4,
+            lineWrapping: true,
+            gutters: []
+        });
+        
+        // 初始化输出编辑器
+        outputEditor = CodeMirror(document.getElementById('outputDiv'), {
+            mode: 'text',
+            theme: 'monokai',
+            lineNumbers: false,
+            readOnly: true,
+            scrollbarStyle: null,  // 禁用默认滚动条样式
+            viewportMargin: Infinity,
+            lineWrapping: true,
+            gutters: []
+        });
+
+        // 处理输出
+        function handleOutput(output) {
+            outputEditor.setValue(output);
+            outputEditor.scrollTo(0, outputEditor.getScrollInfo().height);
         }
 
         // 添加保存工作区的函数
@@ -341,39 +419,6 @@
                 return false;
             }
         }
-
-        // 代码生成事件处理
-        function onWorkspaceChange(event) {
-            // 只处理块变化和移动事件
-            if (event.type == Blockly.Events.BLOCK_CHANGE || 
-                event.type == Blockly.Events.BLOCK_CREATE ||
-                event.type == Blockly.Events.BLOCK_DELETE ||
-                event.type == Blockly.Events.BLOCK_MOVE) {
-                
-                console.log("Workspace changed, generating code...");
-                // 获取生成的代码
-                var code = Blockly.Python.workspaceToCode(workspace);
-                console.log("Generated code:", code);
-                // 发送到 Python
-                if (typeof webBridge !== 'undefined') {
-                    webBridge.handleCodeGenerated(code);
-                }
-            }
-        }
-
-        // 添加工作区变化监听器
-        workspace.addChangeListener(onWorkspaceChange);
-
-        // 注册 QWebChannel
-        new QWebChannel(qt.webChannelTransport, function(channel) {
-            window.webBridge = channel.objects.webBridge;
-            webBridge = channel.objects.webBridge;
-            
-            // 监听端口更新
-            webBridge.portsUpdated.connect(function() {
-                refreshPortList();
-            });
-        });
     </script>
 </body>
 </html>

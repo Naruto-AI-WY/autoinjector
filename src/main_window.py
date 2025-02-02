@@ -15,6 +15,7 @@ from components.toolbar import Toolbar
 from devices.pump_controller import PumpController
 from devices.serial_controller import SerialController
 from devices.serial_settings import SerialSettings
+from devices.valve_controller import ValveController
 from line_tracer import LineTracer
 
 logger = logging.getLogger(__name__)
@@ -290,7 +291,10 @@ class MainWindow(QMainWindow):
                 'print': lambda *args: logger.info(' '.join(map(str, args))),
                 'logger': logger,
                 'pump': self.pump,
-                'serial_controller': self.serial_controller
+                'serial_controller': self.serial_controller,
+                'SerialController': SerialController,
+                'ValveController': ValveController,
+                'PumpController': PumpController
             }
             
             # 执行代码

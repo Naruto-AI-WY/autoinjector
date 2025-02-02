@@ -152,8 +152,30 @@ class SerialController(QObject):
             return False
         
         self.serial.flush()
-        self.data_sent.emit(data.decode())  # 发送数据发送信号
+        self.data_sent.emit(data.hex())  # 发送数据发送信号，使用十六进制显示
         return True
+
+    def read(self, size: int) -> bytes:
+        """读取指定字节数的数据
+        
+        Args:
+            size: 要读取的字节数
+            
+        Returns:
+            bytes: 读取的数据
+            
+        Raises:
+            ConnectionError: 串口未连接时抛出
+        """
+        if not self.is_connected:
+            logger.error("Attempted to read while not connected")
+            raise ConnectionError("串口未连接")
+            
+        data = self.serial.readAll().data()
+        if data:
+            logger.debug(f"Read data: {data.hex()}")  # 使用十六进制显示
+            return data
+        return bytes()
 
     def send_command(self, command):
         """发送命令"""
