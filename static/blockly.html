@@ -62,11 +62,13 @@
         /* CodeMirror 样式 */
         .CodeMirror {
             height: 100% !important;
-            border-left: none !important;
         }
 
         .CodeMirror-gutters {
             display: none !important;
+            background: transparent !important;
+            border: none !important;
+            width: 0 !important;
         }
 
         .CodeMirror-gutter {
@@ -83,6 +85,13 @@
 
         .CodeMirror-sizer {
             margin-left: 0 !important;
+        }
+
+        /* 编辑器容器样式 */
+        #codeDiv, #outputDiv {
+            border-left: none !important;
+            margin-left: 0 !important;
+            padding-left: 0 !important;
         }
     </style>
 </head>
