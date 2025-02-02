@@ -103,28 +103,43 @@ class ValveController:
             else:
                 logger.info(f"发送指令: {cmd_str}")
             
-            # 发送命令
-            self.serial_controller.write(cmd_bytes)
+            # 发送命令，最多重试3次
+            for attempt in range(3):
+                try:
+                    if not self.serial_controller.write(cmd_bytes):
+                        logger.warning(f"发送命令失败，尝试重试... ({attempt + 1}/3)")
+                        time.sleep(0.5)  # 等待500ms后重试
+                        continue
+                        
+                    # 读取响应，使用带重试的读取方法
+                    response = self.serial_controller.read_with_retry(expected_length, retries=3, timeout=1.0)
+                    
+                    # 记录接收到的数据
+                    if response:
+                        resp_str = ' '.join([f'0x{b:02X}' for b in response])
+                        if len(response) > 2 and response[1] == self.ROTATE_CMD:
+                            current_pos = response[6]  # 0-based position
+                            logger.info(f"接收数据: {resp_str} (当前孔位 {current_pos + 1}，协议中使用从0开始的编号 0x{current_pos:02X})")
+                        else:
+                            logger.info(f"接收数据: {resp_str}")
+                            
+                        if len(response) != expected_length:
+                            logger.warning(f"响应长度错误: 期望 {expected_length} 字节，实际收到 {len(response)} 字节")
+                            continue
+                            
+                        return response
+                    else:
+                        logger.warning(f"未接收到数据，尝试重试... ({attempt + 1}/3)")
+                        continue
+                        
+                except Exception as e:
+                    logger.warning(f"通信出错: {str(e)}，尝试重试... ({attempt + 1}/3)")
+                    time.sleep(0.5)  # 等待500ms后重试
+                    continue
+                    
+            logger.error("发送命令失败: 重试次数已用完")
+            return None
             
-            # 读取响应
-            response = self.serial_controller.read(expected_length)
-            
-            # 记录接收到的数据
-            if response:
-                resp_str = ' '.join([f'0x{b:02X}' for b in response])
-                if len(response) > 2 and response[1] == self.ROTATE_CMD:
-                    current_pos = response[6]  # 0-based position
-                    logger.info(f"接收数据: {resp_str} (当前孔位 {current_pos + 1}，协议中使用从0开始的编号 0x{current_pos:02X})")
-                else:
-                    logger.info(f"接收数据: {resp_str}")
-            else:
-                logger.info("未接收到数据")
-                
-            if len(response) != expected_length:
-                logger.error(f"响应长度错误: 期望 {expected_length} 字节，实际收到 {len(response)} 字节")
-                return None
-                
-            return response
         except Exception as e:
             logger.error(f"发送命令出错: {str(e)}")
             return None
